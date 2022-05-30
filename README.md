@@ -1,1 +1,2 @@
-# project2-udagram-udacity
+# Project 2: Udagram
+
