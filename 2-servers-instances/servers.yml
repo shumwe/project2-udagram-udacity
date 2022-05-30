@@ -1,0 +1,174 @@
+Description: >
+    Udagram / Servers requirements script
+Parameters:
+    EnvName:
+        Description: Base infrastructure name
+        Type: String
+
+    MyImageId:
+        Description: Ubuntu image id, provided by amazon
+        Type: String
+        Default: ami-09d56f8956ab235b3
+
+    MyInstanceType:
+        Description: Instance type used
+        Type: String
+        Default: t3.small 
+    
+    PersonalIp:
+        Description: My IP address
+        Type: String
+
+Resources:
+    # instance profile
+    ProfileWithRolesForOurApp:
+        Type: AWS::IAM::InstanceProfile
+        Properties: 
+            Roles:
+                - Ref: UdacityS3ReadOnly
+    
+    # iam role:- contains embedded policy
+    UdacityS3ReadOnly:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service:
+                              - ec2.amazonaws.com
+                      Action:
+                          - 'sts:AssumeRole'
+            Path: /
+            Policies:
+                - PolicyName: UdacityS3ReadOnlyAccess
+                  PolicyDocument:
+                      Version: "2012-10-17"
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - 's3:Get'
+                                - 's3:List'
+                            Resource: '*'
+    
+    # instance security group allowing private ssh access to port 22 and public http traffic in port 80
+    UdagramSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Instance security group
+            VpcId:
+                Fn::ImportValue: !Sub ${EnvName}-VPC
+            SecurityGroupIngress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+                - IpProtocol: tcp
+                  FromPort: 22
+                  ToPort: 22
+                  CidrIp: !Ref PersonalIp
+
+    LaunchConfig:
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties:
+            BlockDeviceMappings:
+                - DeviceName: "/dev/sdk"
+                  Ebs:
+                      VolumeSize: '10'
+            ImageId: !Ref MyImageId
+            InstanceType: !Ref MyInstanceType
+            KeyName: udagram-key-pair
+            IamInstanceProfile: !Ref ProfileWithRolesForOurApp
+            SecurityGroups:
+                - Ref: UdagramSecurityGroup
+            AssociatePublicIpAddress: false
+            UserData: !Base64 |
+                #!/bin/bash
+                apt-get update -y
+                apt-get install apache2 awscli -y
+                systemctl start apache2.service
+                cd /var/www/html
+                sudo aws s3 cp s3://udagram-project-bucket-117412528073/index.html /var/www/html
+
+    UdagramLoadBalancer:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        Properties:
+            Subnets:
+                - Fn::ImportValue: !Sub "${EnvName}-PublicSubnet1"
+                - Fn::ImportValue: !Sub "${EnvName}-PublicSubnet2"
+            SecurityGroups:
+                - !Ref LoadBalancerSecurityGroup
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvName}-LoadBalancer
+    
+    UdagramAutoScalingGroup:
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties:
+            LaunchConfigurationName: !Ref LaunchConfig
+            MinSize: 4
+            MaxSize: 4
+            TargetGroupARNs:
+                - Ref: UdagramLBTargetGroup
+            VPCZoneIdentifier:
+                - Fn::ImportValue: !Sub "${EnvName}-PrivateSubnet2"
+                - Fn::ImportValue: !Sub "${EnvName}-PrivateSubnet1"
+    
+    LoadBalancerSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Load balancer security group allowing http traffic
+            GroupName: !Sub ${EnvName}-LB-SecurityGroup
+            VpcId:
+                Fn::ImportValue: !Sub ${EnvName}-VPC
+            SecurityGroupEgress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+            SecurityGroupIngress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+
+    UdagramLBTargetGroup:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            HealthCheckIntervalSeconds: 15
+            HealthCheckPath: /
+            HealthCheckProtocol: HTTP
+            HealthCheckTimeoutSeconds: 8
+            HealthyThresholdCount: 2
+            Port: 80
+            Protocol: HTTP
+            UnhealthyThresholdCount: 5
+            VpcId:
+                Fn::ImportValue:
+                    Fn::Sub: "${EnvName}-VPC"
+
+    Listener:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            LoadBalancerArn:
+                Ref: UdagramLoadBalancer
+            DefaultActions:
+                - Type: forward
+                  TargetGroupArn:
+                    Ref: UdagramLBTargetGroup
+            Port: 80
+            Protocol: HTTP
+
+Outputs:
+    UdargamLoadBalancerUrl:
+        Description: Udagram load balancer url
+        Value: !Join ['',['http://', !GetAtt UdagramLoadBalancer.DNSName ]]
+        Export:
+            Name: !Sub ${EnvName}-LoadBalancer-URL
+    
+    ProfileWithRolesForOurApp:
+        Description: Udagram profile
+        Value: !Ref ProfileWithRolesForOurApp
+        Export: 
+            Name: !Sub ${EnvName}-UdagramInstanceProfile

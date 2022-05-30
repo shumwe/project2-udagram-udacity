@@ -1,0 +1,18 @@
+[
+    {
+        "ParameterKey": "EnvName",
+        "ParameterValue": "Udagram"
+    },
+    {
+        "ParameterKey": "MyImageId",
+        "ParameterValue": "ami-09d56f8956ab235b3"
+    },
+    {
+        "ParameterKey": "MyInstanceType",
+        "ParameterValue": "t3.small"
+    },
+    {
+        "ParameterKey": "PersonalIp",
+        "ParameterValue": "192.168.179.11/24"
+    }
+]
