@@ -1,5 +1,7 @@
 Description: >
-    Udagram / Servers requirements script
+    Bravin Shumwe: Udagram / This template is an extension of the infrastructure template. Run it after 
+    running the infrastructure template. Contains: profile and roles, security groups, target groups, launch configuration,
+     auto scaling grou, load alancer, and a listener
 Parameters:
     EnvName:
         Description: Base infrastructure name
